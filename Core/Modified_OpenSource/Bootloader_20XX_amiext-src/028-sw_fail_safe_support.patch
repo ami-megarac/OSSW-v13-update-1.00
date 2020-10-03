@@ -1,0 +1,233 @@
+diff -Naur uboot_orig/common/autoboot.c uboot/common/autoboot.c
+--- uboot_orig/common/autoboot.c	2020-07-21 14:11:56.066180255 +0530
++++ uboot/common/autoboot.c	2020-07-21 14:16:58.532313989 +0530
+@@ -28,6 +28,12 @@
+ /* Stored value of bootdelay, used by autoboot_command() */
+ static int stored_bootdelay;
+ 
++//#if defined(CONFIG_SPX_FEATURE_FAIL_SAFE_BOOTING)
++#define WDT2_CONTROL_REG        (0x1e785040 + 0x0c)
++#define WDT_ENABLE              0x01
++#define WDT_RESET_SYSTEM        0x02 
++//#endif
++
+ #if defined(CONFIG_AUTOBOOT_KEYED)
+ #if defined(CONFIG_AUTOBOOT_STOP_STR_SHA256)
+ 
+@@ -208,6 +214,19 @@
+ static int menukey;
+ #endif
+ 
++//#if defined(CONFIG_SPX_FEATURE_FAIL_SAFE_BOOTING)
++int Disable_watchdog2(void)
++{
++
++    if(*((volatile unsigned long *)(WDT2_CONTROL_REG)) & (WDT_ENABLE | WDT_RESET_SYSTEM))
++    {
++       printf("\nDisabling Watchdog 2 Timer\n");
++       *((volatile unsigned long *)(WDT2_CONTROL_REG)) &= ~(WDT_RESET_SYSTEM | WDT_ENABLE);
++    }
++    return 0;
++}
++//#endif
++
+ static int __abortboot(int bootdelay)
+ {
+ 	int abort = 0;
+@@ -226,6 +245,9 @@
+ 		(void) getc();  /* consume input	*/
+ 		puts("\b\b\b 0");
+ 		abort = 1;	/* don't auto boot	*/
++//#if defined(CONFIG_SPX_FEATURE_FAIL_SAFE_BOOTING)
++		Disable_watchdog2();
++//#endif
+ 	}
+ 
+ 	while ((bootdelay > 0) && (!abort)) {
+@@ -236,6 +258,9 @@
+ 			if (tstc()) {	/* we got a key press	*/
+ 				abort  = 1;	/* don't auto boot	*/
+ 				bootdelay = 0;	/* no more delay	*/
++//#if defined(CONFIG_SPX_FEATURE_FAIL_SAFE_BOOTING)
++				Disable_watchdog2();
++//#endif
+ # ifdef CONFIG_MENUKEY
+ 				menukey = getc();
+ # else
+diff -Naur uboot_orig/oem/ami/fmh/ast_wdt.c uboot/oem/ami/fmh/ast_wdt.c
+--- uboot_orig/oem/ami/fmh/ast_wdt.c	2020-07-21 14:12:01.362221011 +0530
++++ uboot/oem/ami/fmh/ast_wdt.c	2020-07-21 14:17:13.032413586 +0530
+@@ -19,7 +19,7 @@
+ #include <common.h>
+ 
+ #define WDT_ENABLE              0x01
+-#define WDT_TIMEOUT             0x23C34600              // 10 Minutes (600 secs * 1MHz)
++#define WDT_TIMEOUT             0x11E1A300              // 5 Minutes (300 secs * 1MHz)
+ #define WDT_TRIGGER             0x00004755              // Trigger Passcode
+ #define WDT_CLOCK               0x10                    // 1MHz Clock for WDT
+ #define WDT_RESET_SYSTEM        0x02                    // Enable System-Reset-On-Timeout
+@@ -48,7 +48,7 @@
+ 
+        /* Reading the Watchdog Timeout event counter*/
+        *wdt_timeout_status = *((volatile unsigned long *)(WDT2_TIMEOUT_STAT_REG));
+-#ifdef CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
++#ifdef CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT
+        /*clear boot source to restore address mapping... */
+ #ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
+ 		if ((broken_spi_banks == 2) && (*wdt_timeout_status & WDT_CUR_BOOTSRC_MASK))
+@@ -56,7 +56,7 @@
+ 		else if (broken_spi_banks == 0)
+ #endif
+        {
+-           *((volatile unsigned long *)(WDT2_CLR_TIMEOUT_STAT_REG)) = 0x00000001 ; 
++           *((volatile unsigned long *)(WDT2_CLR_TIMEOUT_STAT_REG)) = 0x00000077 ;
+        }
+ #endif
+ 
+diff -Naur uboot_orig/oem/ami/fmh/cmd_fmh.c uboot/oem/ami/fmh/cmd_fmh.c
+--- uboot_orig/oem/ami/fmh/cmd_fmh.c	2020-07-21 14:12:01.338220825 +0530
++++ uboot/oem/ami/fmh/cmd_fmh.c	2020-07-21 20:22:24.176445789 +0530
+@@ -11,6 +11,7 @@
+ #include <spi_flash.h>
+ #include <environment.h>
+ #include <console.h>
++#include "soc_hw.h"
+ 
+ 
+ #ifdef CONFIG_SPX_FEATURE_SECURE_BOOT_SUPPORT 
+@@ -72,6 +73,17 @@
+ 
+ int check_firmware_recovery(void);
+ 
++#ifdef CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT
++#define WDT_ENABLE                      0x01
++#define WDT_TIMEOUT                     0xF4240     // 1 second
++#define WDT_TRIGGER                     0x00004755  // Trigger Passcode
++#define WDT_CLOCK                       0x10        // 1MHz Clock for WDT
++#define WDT_RESET_SYSTEM                0x02        // Enable System-Reset-On-Timeout
++#define WDT_CLR_EVT_COUNTER             0x76        // Clear the Timeout Counter & Boot Source code
++#define WDT2_SECOND_BOOT_CODE           0x80        // Enable Second Boot Code upon reset
++#define WDT_CUR_BOOTSRC_MASK            0x00000002
++#endif
++
+ 
+ #if defined(CONFIG_SPX_FEATURE_FAIL_SAFE_BOOTING) || defined(CONFIG_SPX_FEATURE_BMC_FIRMWARE_AUTO_RECOVERY)
+ extern int Enable_watchdog(unsigned long *wdt_timeout_status);
+@@ -248,8 +260,7 @@
+         hang();
+     }
+ 
+-    //flashsize = flash->mtd.size;
+-    flashsize = CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE;
++    flashsize = flash->size;
+     SectorSize = 0x10000; //flash->erase_size;//0x10000;//flash->sector_size;
+     SectorCount = flashsize/SectorSize;
+    printf("Flash size 0x%lx Sector size 0x%lx SectorCount 0x%lx\n",flashsize,SectorSize,SectorCount);
+@@ -951,6 +962,45 @@
+ }
+ #endif
+ 
++#ifdef  CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT
++static int TriggerWDT2(void)
++{
++       /*Check for WDT2 enable, if enabled it means that panic occurs before boot complete*/
++       if(!(*((volatile unsigned long *)(WDT2_CONTROL_REG)) & WDT_ENABLE ))
++       {
++           return -1;
++       }
++
++       /* Disable the Watchdog Timer */
++       *((volatile unsigned long *)(WDT2_CONTROL_REG)) &= ~(WDT_RESET_SYSTEM | WDT_ENABLE);
++
++       /* Set the Timeout value to reboot immediately */
++       *((volatile unsigned long *)(WDT2_RELOAD_REG)) = WDT_TIMEOUT;
++
++       /* Set the Trigger value to restart Timer freshly */
++       *((volatile unsigned long *)(WDT2_CNT_RESTART_REG)) = WDT_TRIGGER;
++
++       /* Set the Watchdog clock to 1MHz clock */
++       *((volatile unsigned long *)(WDT2_CONTROL_REG)) |= (WDT_CLOCK);
++
++       /* Reading the Watchdog Timeout event counter*/
++       {
++           *((volatile unsigned long *)(WDT2_CLR_TIMEOUT_STAT_REG)) = 0x00000001 ;
++       }
++
++#ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
++       /* Enabling the Second Boot code upon reset */
++       *((volatile unsigned long *)(WDT2_CONTROL_REG)) |= (WDT2_SECOND_BOOT_CODE);
++#else
++       *((volatile unsigned long *)(WDT2_CONTROL_REG)) &= ~(WDT2_SECOND_BOOT_CODE);
++#endif
++       /* Enable back the Watchdog timer to start the Watchdog */
++       /* Also set the Flag to reset the CPU on Timeout */
++       *((volatile unsigned long *)(WDT2_CONTROL_REG)) |= (WDT_RESET_SYSTEM | WDT_ENABLE);
++       return 0;
++}
++#endif
++
+ 	
+ int
+ BootFMH(unsigned short PathID)
+@@ -1642,6 +1692,9 @@
+ 		console_assign(stdout,"serial");
+ #else
+         printf("Error locating Kernel. Reset the board\n");
++#ifdef  CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT
++        TriggerWDT2();
++#endif
+ #endif                
+ 		printf("Unable to locate %s\n",KERNEL_FILE);
+ 	}
+@@ -1697,6 +1750,9 @@
+ 	}
+ 	console_assign(stdout,"nulldev");
+ 	printf("Unable to locate %s\n",KERNEL_FILE);
++#ifdef  CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT
++        TriggerWDT2();
++#endif
+ 	UpdateFirmware();
+ #else
+    printf("Error locating Kernel. Reset the board\n");
+diff -Naur uboot_orig/oem/ami/fmh/hwmap.h uboot/oem/ami/fmh/hwmap.h
+--- uboot_orig/oem/ami/fmh/hwmap.h	2020-07-21 14:12:01.374221104 +0530
++++ uboot/oem/ami/fmh/hwmap.h	2020-07-21 14:17:04.904357711 +0530
+@@ -58,6 +58,7 @@
+ #define AST_UART1_BASE                  0x1E783000
+ #define AST_UART2_BASE                  0x1E784000
+ #define AST_WDT_BASE                    0x1E785000
++#define AST_WDT2_BASE                   0x1E785040
+ #define AST_PWM_FAN_BASE                0x1E786000
+ #define AST_VUART_BASE                  0x1E787000
+ #define AST_PUART_BASE                  0x1E788000
+@@ -96,6 +97,7 @@
+ #define AST_UART1_VA_BASE               IO_ADDRESS(AST_UART1_BASE)
+ #define AST_UART2_VA_BASE               IO_ADDRESS(AST_UART2_BASE)
+ #define AST_WDT_VA_BASE                 IO_ADDRESS(AST_WDT_BASE)
++#define AST_WDT2_VA_BASE                IO_ADDRESS(AST_WDT2_BASE)
+ #define AST_PWM_FAN_VA_BASE             IO_ADDRESS(AST_PWM_FAN_BASE)
+ #define AST_VUART_VA_BASE               IO_ADDRESS(AST_VUART_BASE)
+ #define AST_PUART_VA_BASE               IO_ADDRESS(AST_PUART_BASE)
+diff -Naur uboot_orig/oem/ami/fmh/hwreg.h uboot/oem/ami/fmh/hwreg.h
+--- uboot_orig/oem/ami/fmh/hwreg.h	2020-07-21 14:12:01.374221104 +0530
++++ uboot/oem/ami/fmh/hwreg.h	2020-07-21 14:17:04.904357711 +0530
+@@ -192,13 +192,13 @@
+ #define WDT_CONTROL_REG        (AST_WDT_VA_BASE + 0x0C)
+ #define WDT_TIMEOUT_STAT_REG (AST_WDT_VA_BASE + 0x10)
+ #define WDT_CLR_TIMEOUT_STAT_REG (AST_WDT_VA_BASE + 0x14)
+-#define WDT2_CNT_STATUS_REG  (AST_WDT_VA_BASE + 0x20)
+-#define WDT2_RELOAD_REG          (AST_WDT_VA_BASE + 0x24)
+-#define WDT2_CNT_RESTART_REG (AST_WDT_VA_BASE + 0x28)
+-#define WDT2_CONTROL_REG         (AST_WDT_VA_BASE + 0x2C)
++#define WDT2_CNT_STATUS_REG  (AST_WDT2_VA_BASE + 0x00)
++#define WDT2_RELOAD_REG          (AST_WDT2_VA_BASE + 0x04)
++#define WDT2_CNT_RESTART_REG (AST_WDT2_VA_BASE + 0x08)
++#define WDT2_CONTROL_REG         (AST_WDT2_VA_BASE + 0x0C)
+ 
+-#define WDT2_TIMEOUT_STAT_REG      (AST_WDT_VA_BASE + 0x30)
+-#define WDT2_CLR_TIMEOUT_STAT_REG  (AST_WDT_VA_BASE + 0x34)
++#define WDT2_TIMEOUT_STAT_REG      (AST_WDT2_VA_BASE + 0x10)
++#define WDT2_CLR_TIMEOUT_STAT_REG  (AST_WDT2_VA_BASE + 0x14)
+ 
+ /*------------------------------------------------------------------
+  *              LPC PLUS Controllers Register Locations

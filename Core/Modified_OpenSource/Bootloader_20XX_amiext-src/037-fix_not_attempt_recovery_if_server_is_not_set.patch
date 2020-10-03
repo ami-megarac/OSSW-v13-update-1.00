@@ -1,0 +1,14 @@
+diff -Naur u-boot-2019.04/net/net.c uboot/net/net.c
+--- u-boot-2019.04/net/net.c	2020-09-09 17:15:25.157440843 +0530
++++ uboot/net/net.c	2020-09-09 17:15:37.341857757 +0530
+@@ -1408,6 +1408,10 @@
+ 			puts("*** ERROR: `ipaddr' not set\n");
+ 			return 1;
+ 		}
++		if (net_server_ip.s_addr == 0 && !is_serverip_in_cmd()) {
++			puts("*** ERROR: `serverip' not set\n");
++			return 1;
++		}
+ 		/* Fall through */
+ 
+ #ifdef CONFIG_CMD_RARP

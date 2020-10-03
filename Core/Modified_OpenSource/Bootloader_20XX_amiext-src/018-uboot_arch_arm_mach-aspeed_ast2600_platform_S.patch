@@ -1,0 +1,20 @@
+diff -Naur uboot/arch/arm/mach-aspeed/ast2600/platform.S uboot_new/arch/arm/mach-aspeed/ast2600/platform.S
+--- uboot/arch/arm/mach-aspeed/ast2600/platform.S	2020-05-14 13:54:27.673713115 -0400
++++ uboot_new/arch/arm/mach-aspeed/ast2600/platform.S	2020-05-14 13:59:02.626955035 -0400
+@@ -122,6 +122,16 @@
+     /* setup timer frequency for ARM generic timer */
+     timer_init
+ 
++	/* reset SMP mailbox as early as possible */
++	mov	r0, #0x0
++	ldr	r1, =AST_SMP_MBOX_FIELD_READY
++	str	r0, [r1]
++
++	/* set ACTLR.SMP to enable cache use */
++	mrc	p15, 0, r0, c1, c0, 1
++	orr	r0, #0x40
++	mcr	p15, 0, r0, c1, c0, 1
++	
+     /*
+      * we treat cpu0 as the primary core and
+      * put secondary core (cpuN) to sleep

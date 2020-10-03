@@ -1,0 +1,89 @@
+--- uboot.orig/arch/arm/mach-aspeed/ast2600/platform.S	2020-06-12 16:41:06.836578418 -0400
++++ uboot/arch/arm/mach-aspeed/ast2600/platform.S	2020-06-12 16:42:24.957411470 -0400
+@@ -74,6 +74,11 @@
+ /* Revision ID */
+ #define REV_ID_AST2600A0    0x05000303
+ 
++/* Memory Controller Registers */
++#define AST_MEMCTR_BASE         0x1E6E0000
++#define AST_MEMCTR_PROT_KEY     (AST_MEMCTR_BASE)
++
++
+ ENTRY(ast_bootmode)
+     ldr     r1, =AST_SCU_HW_STRAP1
+     ldr     r0, [r1]
+@@ -112,11 +117,74 @@
+     mcr     p15, 0, r0, c14, c0, 0
+ .endm
+ 
++.macro memctr_unlock
++    ldr   r0, =AST_MEMCTR_PROT_KEY
++    ldr   r1, =0xFC600309
++    str   r1, [r0]
++.endm
++
++.macro memctr_lock
++    ldr   r0, =AST_MEMCTR_PROT_KEY
++    ldr   r1, =0x1
++    str   r1, [r0]
++.endm
++ 
++.macro dram_ecc_enable
++    
++    ldr   r0, =0x1e6e0004
++    ldr   r2, =0x00000880                        @ add cache range control, 2016.09.02
++    ldr   r1, [r0]
++    orr   r1, r1, r2
++    str   r1, [r0]
++
++    ldr   r0, =0x1e6e0054
++    ldr   r1, =CONFIG_SYS_ECC_MAX_ADDR            /* ECC protected memory size */
++    str   r1, [r0]
++
++    ldr   r0, =0x1e6e007C
++    ldr   r1, =0x00000000
++    str   r1, [r0]
++    ldr   r0, =0x1e6e0074
++    str   r1, [r0]
++
++    ldr   r0, =0x1e6e0070
++    ldr   r1, =0x00000221
++    str   r1, [r0]
++
++    ldr   r2, =0x00001000
++ECC_Init_Flag:
++    ldr   r1, [r0]
++    tst   r1, r2                                 @ D[12] = 1, Done
++    beq   ECC_Init_Flag
++
++    ldr   r1, =0x00000000
++    str   r1, [r0]
++
++    ldr   r0, =0x1e6e0050
++    ldr   r1, =0x80000000
++    str   r1, [r0]
++
++    ldr   r0, =0x1e6e0050
++    ldr   r1, =0x00000000
++    str   r1, [r0]
++
++    ldr   r0, =0x1e6e0070
++    ldr   r1, =0x00000400                        @ Enable ECC auto-scrubbing
++    str   r1, [r0]
++
++.endm
++
+ 
+ .globl lowlevel_init
+ 
+ lowlevel_init:
+ #if defined(CONFIG_SPL) && !defined(CONFIG_SPL_BUILD)
++
++#ifdef CONFIG_DRAM_ECC
++    memctr_unlock
++    dram_ecc_enable
++    memctr_lock
++#endif
+     mov   pc, lr
+ #else
+     /* setup timer frequency for ARM generic timer */

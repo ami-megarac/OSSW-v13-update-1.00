@@ -1,0 +1,74 @@
+--- uboot.orig/arch/arm/mach-aspeed/ast2600/platform.S	2020-04-20 09:05:10.387693394 +0800
++++ uboot/arch/arm/mach-aspeed/ast2600/platform.S	2020-04-17 17:01:48.000000000 +0800
+@@ -63,6 +63,8 @@
+ #define AST_SCU_PROT_KEY1       (AST_SCU_BASE)
+ #define AST_SCU_PROT_KEY2       (AST_SCU_BASE + 0x010)
+ #define AST_SCU_REV_ID          (AST_SCU_BASE + 0x014)
++#define AST_SCU_HPLL_PARAM	(AST_SCU_BASE + 0x200)
++#define AST_SCU_HPLL_PARAM_EXT	(AST_SCU_BASE + 0x204)
+ #define AST_SCU_HW_STRAP1       (AST_SCU_BASE + 0x500)
+ 
+ #define AST_FMC_BASE            0x1E620000
+@@ -81,6 +83,15 @@
+     mov     pc, lr
+ ENDPROC(ast_bootmode)
+ 
++.macro scu_unlock
++	movw	r0, #0xA8A8
++	movt	r0, #0x1688	@; magic key to unlock SCU
++
++	ldr	r1, =AST_SCU_PROT_KEY1
++	str	r0, [r1]
++	ldr	r1, =AST_SCU_PROT_KEY2
++	str	r0, [r1]
++.endm
+ .macro timer_init
+ #ifdef CONFIG_FPGA_ASPEED
+     movw    r0, #0x0
+@@ -139,13 +150,40 @@
+     ldr   pc, =AST_SMP_MBOX_FIELD_POLLINSN
+ 
+ do_primary_core_setup:
+-    /* unlock SCU */
+-    ldr   r0, =0x1688A8A8                   @; magic key to unlock SCU
+-    ldr   r1, =AST_SCU_PROT_KEY1
+-    str   r0, [r1]
+-    ldr   r1, =AST_SCU_PROT_KEY2
+-    str   r0, [r1]
++	/* unlock system control unit */
++	scu_unlock
++
++	/* tune-up CPU clock for AST2600 A0 */
++	ldr	r0, =AST_SCU_REV_ID
++	ldr	r0, [r0]
++
++	ldr	r1, =REV_ID_AST2600A0
++	cmp	r0, r1
++
++	bne	0f
++
++	/* setup CPU clocks */
++	ldr	r0, =AST_SCU_HW_STRAP1
++	ldr	r1, [r0]
++	bic	r1, #0x1800
++	orr	r1, #0x1000
++	str	r1, [r0]
++
++	ldr	r0, =AST_SCU_HPLL_PARAM
++	movw	r1, #0x4087
++	movt	r1, #0x1000
++	str	r1, [r0]
++
++	ldr	r0, =AST_SCU_HPLL_PARAM_EXT
++	mov	r1, #0x47
++	str	r1, [r0]
++
++wait_lock:
++	ldr	r1, [r0]
++	tst	r1, #0x80000000
++	beq	wait_lock
+ 
++0:
+     /* disable FMC WDT for SPI address mode detection */
+     mov   r0, #0
+     ldr   r1, =AST_FMC_WDT1_CTRL_MODE

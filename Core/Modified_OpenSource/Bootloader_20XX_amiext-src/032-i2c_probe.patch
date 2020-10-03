@@ -1,0 +1,188 @@
+diff -Naur uboot_old/arch/arm/dts/ast2600.dtsi uboot/arch/arm/dts/ast2600.dtsi
+--- uboot_old/arch/arm/dts/ast2600.dtsi	2020-08-05 12:41:02.000000000 +0800
++++ uboot/arch/arm/dts/ast2600.dtsi	2020-08-05 11:12:46.000000000 +0800
+@@ -1071,7 +1071,14 @@
+ 		function = "I2C14";
+ 		groups = "I2C14";
+ 	};
+-
++	pinctrl_i2c1_default: i2c1_default {
++		function = "I2C1";
++		groups = "I2C1";
++	};
++	pinctrl_i2c2_default: i2c2_default {
++		function = "I2C2";
++		groups = "I2C2";
++	};	
+ 	pinctrl_i2c3_default: i2c3_default {
+ 		function = "I2C3";
+ 		groups = "I2C3";
+diff -Naur uboot_old/arch/arm/dts/ast2600-evb.dts uboot/arch/arm/dts/ast2600-evb.dts
+--- uboot_old/arch/arm/dts/ast2600-evb.dts	2020-08-05 12:41:02.000000000 +0800
++++ uboot/arch/arm/dts/ast2600-evb.dts	2020-08-05 12:41:50.000000000 +0800
+@@ -127,14 +127,25 @@
+ 
+ &i2c0 {
+         status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_i2c1_default>;	
+ };
+ 
+ &i2c3 {
+         status = "okay";
+-
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_i2c4_default>;
+ };
+ 
+ &i2c7 {
+         status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_i2c8_default>;
++};
+ 
++&i2c8 {
++        status = "okay";
++        pinctrl-names = "default";
++        pinctrl-0 = <&pinctrl_i2c9_default>;
+ };
++
+diff -Naur uboot_old/arch/arm/mach-aspeed/board.c uboot/arch/arm/mach-aspeed/board.c
+--- uboot_old/arch/arm/mach-aspeed/board.c	2020-08-05 12:41:02.000000000 +0800
++++ uboot/arch/arm/mach-aspeed/board.c	2020-08-05 09:40:45.000000000 +0800
+@@ -55,14 +55,23 @@
+ int board_init(void)
+ {
+ 	struct udevice *dev;
+-
++        int i;
++        int ret;
+ 	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE + 0x100;
++	/*
++        * Loop over all MISC uclass drivers to call the comphy code
++        * and init all CP110 devices enabled in the DT
++        */
++        i = 0;
++	while (1) {
++        /* Call the comphy code via the MISC uclass driver */
++               ret = uclass_get_device(UCLASS_MISC, i++, &dev);
++
++               /* We're done, once no further CP110 device is found */
++               if (ret)
++                       break;
++        }
+ 
+-	uclass_first_device_check(UCLASS_MISC, &dev);
+-#if 0	
+-	if (!dev) 
+-		printf("No MISC found.\n");
+-#endif
+ 	return 0;
+ }
+ 
+diff -Naur uboot_old/drivers/pinctrl/aspeed/pinctrl_ast2600.c uboot/drivers/pinctrl/aspeed/pinctrl_ast2600.c
+--- uboot_old/drivers/pinctrl/aspeed/pinctrl_ast2600.c	2020-08-05 12:41:02.000000000 +0800
++++ uboot/drivers/pinctrl/aspeed/pinctrl_ast2600.c	2020-08-05 10:28:25.000000000 +0800
+@@ -45,6 +45,79 @@
+ 	return 0;
+ }
+ 
++static struct aspeed_sig_desc i2c1_link[] = {
++	{ 0x418, GENMASK(9, 8), 1 },
++	{ 0x4B8, GENMASK(9, 8), 0 },
++};
++
++static struct aspeed_sig_desc i2c2_link[] = {
++	{ 0x418, GENMASK(11, 10), 1 },
++	{ 0x4B8, GENMASK(11, 10), 0 },
++};
++
++static struct aspeed_sig_desc i2c3_link[] = {
++	{ 0x418, GENMASK(13, 12), 1 },
++	{ 0x4B8, GENMASK(13, 12), 0 },
++};
++
++static struct aspeed_sig_desc i2c4_link[] = {
++	{ 0x418, GENMASK(15, 14), 1 },
++	{ 0x4B8, GENMASK(15, 14), 0 },
++};
++
++static struct aspeed_sig_desc i2c5_link[] = {
++	{ 0x418, GENMASK(17, 16), 0 },
++};
++
++static struct aspeed_sig_desc i2c6_link[] = {
++	{ 0x418, GENMASK(19, 18), 0 },
++};
++
++static struct aspeed_sig_desc i2c7_link[] = {
++	{ 0x418, GENMASK(21, 20), 0 },
++};
++
++static struct aspeed_sig_desc i2c8_link[] = {
++	{ 0x418, GENMASK(23, 22), 0 },
++};
++
++static struct aspeed_sig_desc i2c9_link[] = {
++	{ 0x418, GENMASK(25, 24), 0 },
++};
++
++static struct aspeed_sig_desc i2c10_link[] = {
++	{ 0x418, GENMASK(27, 26), 0 },
++};
++	
++static struct aspeed_sig_desc i2c11_link[] = {
++	{ 0x410, GENMASK(1, 0), 1 },
++	{ 0x4B0, GENMASK(1, 0), 0 },
++};
++
++static struct aspeed_sig_desc i2c12_link[] = {
++	{ 0x410, GENMASK(3, 2), 1 },
++	{ 0x4B0, GENMASK(3, 2), 0 },
++};
++
++static struct aspeed_sig_desc i2c13_link[] = {
++	{ 0x410, GENMASK(5, 4), 1 },
++	{ 0x4B0, GENMASK(5, 4), 0 },
++};
++
++static struct aspeed_sig_desc i2c14_link[] = {
++	{ 0x410, GENMASK(7, 6), 1 },
++	{ 0x4B0, GENMASK(7, 6), 0 },
++};
++
++static struct aspeed_sig_desc i2c15_link[] = {
++	{ 0x414, GENMASK(29, 28), 1 },
++	{ 0x4B4, GENMASK(29, 28), 0 },
++};
++
++static struct aspeed_sig_desc i2c16_link[] = {
++	{ 0x414, GENMASK(31, 30), 1 },
++	{ 0x4B4, GENMASK(31, 30), 0 },
++};
+ static struct aspeed_sig_desc mac1_link[] = {
+ #ifdef CONFIG_FPGA_ASPEED
+ 	{ 0x410, BIT(4), 0 },
+@@ -136,6 +209,22 @@
+ 	{ "SD1_8bits", ARRAY_SIZE(sdio1_8bit_link), sdio1_8bit_link },
+ 	{ "SD2", ARRAY_SIZE(sdio2_link), sdio2_link },
+ 	{ "EMMC", ARRAY_SIZE(emmc_link), emmc_link },
++	{ "I2C1", ARRAY_SIZE(i2c1_link), i2c1_link },
++	{ "I2C2", ARRAY_SIZE(i2c2_link), i2c2_link },
++	{ "I2C3", ARRAY_SIZE(i2c3_link), i2c3_link },
++	{ "I2C4", ARRAY_SIZE(i2c4_link), i2c4_link },
++	{ "I2C5", ARRAY_SIZE(i2c5_link), i2c5_link },
++	{ "I2C6", ARRAY_SIZE(i2c6_link), i2c6_link },
++	{ "I2C7", ARRAY_SIZE(i2c7_link), i2c7_link },
++	{ "I2C8", ARRAY_SIZE(i2c8_link), i2c8_link },
++	{ "I2C9", ARRAY_SIZE(i2c9_link), i2c9_link },
++	{ "I2C10", ARRAY_SIZE(i2c10_link), i2c10_link },
++	{ "I2C11", ARRAY_SIZE(i2c11_link), i2c11_link },
++	{ "I2C12", ARRAY_SIZE(i2c12_link), i2c12_link },
++	{ "I2C13", ARRAY_SIZE(i2c13_link), i2c13_link },
++	{ "I2C14", ARRAY_SIZE(i2c14_link), i2c14_link },
++	{ "I2C15", ARRAY_SIZE(i2c15_link), i2c15_link },
++	{ "I2C16", ARRAY_SIZE(i2c16_link), i2c16_link },
+ };
+ 
+ static int ast2600_pinctrl_get_groups_count(struct udevice *dev)

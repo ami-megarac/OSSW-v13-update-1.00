@@ -1,0 +1,19 @@
+diff -Naur uboot_orig/oem/ami/fmh/cmd_fmh.c uboot/oem/ami/fmh/cmd_fmh.c
+--- uboot_orig/oem/ami/fmh/cmd_fmh.c	2020-07-22 13:26:34.954266082 +0530
++++ uboot/oem/ami/fmh/cmd_fmh.c	2020-07-22 13:26:47.414365589 +0530
+@@ -1750,12 +1750,12 @@
+ 	}
+ 	console_assign(stdout,"nulldev");
+ 	printf("Unable to locate %s\n",KERNEL_FILE);
+-#ifdef  CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT
+-        TriggerWDT2();
+-#endif
+ 	UpdateFirmware();
+ #else
+    printf("Error locating Kernel. Reset the board\n");
++#ifdef CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT
++	TriggerWDT2();
++#endif
+ #endif
+ 
+ 	UpdateFirmware();

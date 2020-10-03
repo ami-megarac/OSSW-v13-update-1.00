@@ -1,0 +1,10 @@
+--- uboot/arch/arm/mach-aspeed/cpuinfo.c	2020-04-16 09:48:55.224166939 -0400
++++ uboot_new/arch/arm/mach-aspeed/cpuinfo.c	2020-04-16 10:09:19.942296884 -0400
+@@ -53,6 +53,7 @@
+ 	SOC_ID("AST2530-A1", 0x04010403),
+ 	SOC_ID("AST2530-A2", 0x04030403),	
+ 	SOC_ID("AST2600-A0", 0x05000303),
++	SOC_ID("AST2600-A1", 0x05010303),
+ };
+ 
+ void aspeed_get_revision_id(void)

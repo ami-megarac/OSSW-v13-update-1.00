@@ -1,0 +1,150 @@
+diff -Naur uboot/drivers/net/ftgmac100.c uboot_new/drivers/net/ftgmac100.c
+--- uboot/drivers/net/ftgmac100.c	2020-07-21 15:25:35.195107844 +0800
++++ uboot_new/drivers/net/ftgmac100.c	2020-07-21 15:26:03.097654137 +0800
+@@ -294,7 +294,9 @@
+ 	struct ftgmac100 *ftgmac100 = priv->iobase;
+ 	struct phy_device *phydev = priv->phydev;
+ 	unsigned int maccr;
++	unsigned int dblac;
+ 	ulong start, end;
++	size_t sz_txdes, sz_rxdes;
+ 	int ret;
+ 	int i;
+ 
+@@ -344,6 +346,19 @@
+ 	/* config receive buffer size register */
+ 	writel(FTGMAC100_RBSR_SIZE(FTGMAC100_RBSR_DEFAULT), &ftgmac100->rbsr);
+ 
++	/* config TX/RX descriptor size */
++	sz_txdes = sizeof(struct ftgmac100_txdes);
++	sz_rxdes = sizeof(struct ftgmac100_rxdes);
++	if ((sz_txdes & 0xF) || (sz_rxdes & 0xF)) {
++		dev_err(phydev->dev, "Descriptor size must be 16 bytes aligned\n");
++		return -1;
++	}
++	dblac = ftgmac100->dblac;
++	dblac &= ~(0xFF << 12);
++	dblac |= ((sz_txdes >> 3) << 16);
++	dblac |= ((sz_txdes >> 3) << 12);
++	writel(dblac, &ftgmac100->dblac);
++
+ 	/* enable transmitter, receiver */
+ 	maccr = FTGMAC100_MACCR_TXMAC_EN |
+ 		FTGMAC100_MACCR_RXMAC_EN |
+@@ -518,10 +533,12 @@
+ 	struct eth_pdata *pdata = dev_get_platdata(dev);
+ 	struct ftgmac100_data *priv = dev_get_priv(dev);
+ 	const char *phy_mode;
++	int offset = 0;
+ 
+ 	pdata->iobase = devfdt_get_addr(dev);
+ 	pdata->phy_interface = -1;
+ 	phy_mode = dev_read_string(dev, "phy-mode");
++
+ 	if (phy_mode)
+ 		pdata->phy_interface = phy_get_interface_by_name(phy_mode);
+ 	if (pdata->phy_interface == -1) {
+@@ -529,6 +546,14 @@
+ 		return -EINVAL;
+ 	}
+ 
++	offset = fdtdec_lookup_phandle(gd->fdt_blob, dev_of_offset(dev),
++				       "phy-handle");
++	if (offset > 0) {
++		priv->phy_addr = fdtdec_get_int(gd->fdt_blob, offset, "reg", -1);
++	} else {
++		priv->phy_addr = 0;
++	}
++
+ 	pdata->max_speed = dev_read_u32_default(dev, "max-speed", 0);
+ 
+ 	if (dev_get_driver_data(dev) == FTGMAC100_MODEL_NEW_ASPEED) {
+diff -Naur uboot/drivers/net/ftgmac100.h uboot_new/drivers/net/ftgmac100.h
+--- uboot/drivers/net/ftgmac100.h	2020-07-21 15:25:41.386785267 +0800
++++ uboot_new/drivers/net/ftgmac100.h	2020-07-21 15:26:06.577472835 +0800
+@@ -177,12 +177,22 @@
+ /*
+  * Transmit descriptor, aligned to 16 bytes
+  */
++
++#ifndef CONFIG_SYS_DCACHE_OFF
++struct ftgmac100_txdes {
++	unsigned int	txdes0;
++	unsigned int	txdes1;
++	unsigned int	txdes2;	/* not used by HW */
++	unsigned int	txdes3;	/* TXBUF_BADR */
++} __aligned(CONFIG_SYS_CACHELINE_SIZE);
++#else
+ struct ftgmac100_txdes {
+ 	unsigned int	txdes0;
+ 	unsigned int	txdes1;
+ 	unsigned int	txdes2;	/* not used by HW */
+ 	unsigned int	txdes3;	/* TXBUF_BADR */
+ } __aligned(16);
++#endif
+ 
+ #define FTGMAC100_TXDES0_TXBUF_SIZE(x)	((x) & 0x3fff)
+ #define FTGMAC100_TXDES0_EDOTR		BIT(15)
+@@ -203,12 +213,21 @@
+ /*
+  * Receive descriptor, aligned to 16 bytes
+  */
++#ifndef CONFIG_SYS_DCACHE_OFF
++struct ftgmac100_rxdes {
++	unsigned int	rxdes0;
++	unsigned int	rxdes1;
++	unsigned int	rxdes2;	/* not used by HW */
++	unsigned int	rxdes3;	/* RXBUF_BADR */
++} __aligned(CONFIG_SYS_CACHELINE_SIZE);
++#else
+ struct ftgmac100_rxdes {
+ 	unsigned int	rxdes0;
+ 	unsigned int	rxdes1;
+ 	unsigned int	rxdes2;	/* not used by HW */
+ 	unsigned int	rxdes3;	/* RXBUF_BADR */
+ } __aligned(16);
++#endif
+ 
+ #define FTGMAC100_RXDES0_VDBC(x)	((x) & 0x3fff)
+ #define FTGMAC100_RXDES0_EDORR		BIT(15)
+diff -Naur uboot/drivers/net/phy/broadcom.c uboot_new/drivers/net/phy/broadcom.c
+--- uboot/drivers/net/phy/broadcom.c	2020-07-21 15:25:25.147631294 +0800
++++ uboot_new/drivers/net/phy/broadcom.c	2020-07-21 15:25:59.353849192 +0800
+@@ -72,6 +72,12 @@
+ 		phy_write(phydev, MDIO_DEVAD_NONE, MIIM_BCM54XX_SHD, 0xc00);
+ 		mii_reg = 0x8c00;
+ 		phy_write(phydev, MDIO_DEVAD_NONE, MIIM_BCM54XX_SHD, mii_reg);		
++	} else if (phydev->drv->uid == 0x03625e6a) {
++		/* Disable RGMII RXD to RXC Skew */
++		phy_write(phydev, MDIO_DEVAD_NONE, 0x1c, 0x8c00);
++
++		/* First Switch shadow register selector */
++		phy_write(phydev, MDIO_DEVAD_NONE, 0x18, 0xf0e7);
+ 	}
+ 
+ 	return 0;
+@@ -348,6 +354,16 @@
+ 	.shutdown = &genphy_shutdown,
+ };
+ 
++static struct phy_driver BCM54612_driver = {
++	.name = "Broadcom BCM54612",
++	.uid = 0x03625e6a,
++	.mask = 0xffffffff,
++	.features = PHY_GBIT_FEATURES,
++	.config = &bcm5461_config,
++	.startup = &bcm54xx_startup,
++	.shutdown = &genphy_shutdown,
++};
++
+ static struct phy_driver BCM5461S_driver = {
+ 	.name = "Broadcom BCM5461S",
+ 	.uid = 0x2060c0,
+@@ -391,6 +407,7 @@
+ int phy_broadcom_init(void)
+ {
+ 	phy_register(&BCM54616S_driver);
++	phy_register(&BCM54612_driver);
+ 	phy_register(&BCM5482S_driver);
+ 	phy_register(&BCM5464S_driver);
+ 	phy_register(&BCM5461S_driver);

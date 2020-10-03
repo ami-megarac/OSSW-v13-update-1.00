@@ -1,0 +1,54 @@
+diff -Naur uboot/oem/ami/standalone/nettest/mac.c uboot_new/oem/ami/standalone/nettest/mac.c
+--- uboot/oem/ami/standalone/nettest/mac.c	2020-09-02 15:22:28.871580283 +0530
++++ uboot_new/oem/ami/standalone/nettest/mac.c	2020-09-02 15:23:29.603991664 +0530
+@@ -1013,6 +1013,10 @@
+ 	} else if (eng->flg.Err_Flag) {
+ 		PRINTF(option, "                    \n----> fail !!!\n");
+ 	}
++	else {
++		PRINTF(option, "                    \n----> All Pass !!!\n");
++ 	}
++
+ 
+ 	//------------------------------
+ 	//[Warning] PHY Address
+@@ -1026,10 +1030,10 @@
+ 	//[Warning] IO Strength
+ 	//------------------------------
+ #ifdef CONFIG_ASPEED_AST2600
+-	if (eng->io.init_done && (eng->io.mac34_drv_reg.value.w != 0xf)) {
++	if (eng->io.init_done && (eng->io.mac34_drv_reg.value.w != 0xa)) {
+ 		PRINTF(option,
+ 				"\n[Warning] [%08X] 0x%08x is not the suggestion value "
+-		       "0xf.\n",
++		       "0xa.\n",
+ 				eng->io.mac34_drv_reg.addr,
+ 				eng->io.mac34_drv_reg.value.w);
+ #else
+@@ -1933,12 +1937,12 @@
+ 		while (HWOwnRx(eng->dat.RxDes0DW)) {
+ 			// we will run again, if transfer has not been completed.
+ 			if (eng->run.TM_TxDataEn && (++timeout > eng->run.timeout_th)) {
+-#if 0			
++			
+ 				printf("[%sRxDesOwn] Address %08x = %08x "
+ 						"[Des:%d][loop[%d]:%d]\n",
+ 						type, adr, eng->dat.RxDes0DW, desnum,
+ 						eng->run.loop_of_cnt, eng->run.loop_cnt);
+-#endif
++
+ 			FindErr_Des(eng, Des_Flag_RxOwnTimeOut);
+ 			return (2);
+ 			}
+diff -Naur uboot/oem/ami/standalone/nettest/stress.c uboot_new/oem/ami/standalone/nettest/stress.c
+--- uboot/oem/ami/standalone/nettest/stress.c	2020-09-02 15:22:28.871580283 +0530
++++ uboot_new/oem/ami/standalone/nettest/stress.c	2020-09-02 15:23:48.380118901 +0530
+@@ -117,7 +117,7 @@
+ /* ------------------------------------------------------------------------- */
+ static void print_usage(void)
+ {
+-	printf("\nASPEED DRAM BIST\n\n");
++	printf("\nASPEED DRAM TEST\n\n");
+ 	printf("Usage: dramtest <count> <block> <length>\n\n");
+ 	printf("count:  how many iterations to run (mandatory, in decimal)\n");
+ 	printf("        0: infinite loop.\n");
